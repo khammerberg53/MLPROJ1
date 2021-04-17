@@ -16,12 +16,49 @@ from sklearn.metrics import accuracy_score
 from sklearn.metrics import r2_score
 import yfinance as yf
 
-### QQQ 10 day price predictor
+### Stock price predictor
 
 # Reproducability
 np.random.seed(42)
 tf.random.set_seed(42)
 random.seed(42)
+
+### Set parameters
+
+N_STEPS = 100
+# valid periods: 1d,5d,1mo,3mo,6mo,1y,2y,5y,10y,ytd,max
+PERIOD = '2y'
+# valid intervals: 1m,2m,5m,15m,30m,60m,90m,1h,1d,5d,1wk,1mo,3mo
+INTERVAL = '1d'
+# Lookup step, 1 is the next day
+LOOKUP_STEP = 5
+# test ratio size, 0.2 is 20%
+TEST_SIZE = 0.3
+# features to use
+FEATURE_COLUMNS = ["Close", "Volume", "Open", "High", "Low"]
+# date now
+date_now = time.strftime("%Y-%m-%d")
+
+# > model parameters <
+N_LAYERS = 5
+#Type of model
+CELL = LSTM
+# Number of neurons
+UNITS = 256
+# Dropout rate
+DROPOUT = 0.3
+# whether to use bidirectional RNNs
+BIDIRECTIONAL = False
+
+# > training parameters <
+# LOSS = "mae"
+# huber loss
+LOSS = "huber_loss"
+OPTIMIZER = "adam"
+BATCH_SIZE = 64
+EPOCHS = 5
+ticker = "QQQ"
+
 
 #units = neurons
 def load_data(ticker, period, interval, n_steps=200, scale=True, shuffle=True, lookup_step=30, test_size=.2,
@@ -45,6 +82,8 @@ def load_data(ticker, period, interval, n_steps=200, scale=True, shuffle=True, l
 
     result = {}
     result['df'] = df.copy()
+    ### preview data frame before preprocessing
+    print(df)
 
     for col in feature_columns:
         assert col in df.columns, f"'{col}' does not exist in the dataframe."
@@ -120,40 +159,6 @@ def create_model(sequence_length, units=256, cell=LSTM, n_layers=3, dropout=0.3,
     model.add(Dense(1, activation="linear"))
     model.compile(loss=loss, metrics=["mean_absolute_error"], optimizer=optimizer)
     return model
-
-N_STEPS = 100
-# valid periods: 1d,5d,1mo,3mo,6mo,1y,2y,5y,10y,ytd,max
-PERIOD = '2y'
-# valid intervals: 1m,2m,5m,15m,30m,60m,90m,1h,1d,5d,1wk,1mo,3mo
-INTERVAL = '1d'
-# Lookup step, 1 is the next day
-LOOKUP_STEP = 5
-# test ratio size, 0.2 is 20%
-TEST_SIZE = 0.3
-# features to use
-FEATURE_COLUMNS = ["Close", "Volume", "Open", "High", "Low"]
-# date now
-date_now = time.strftime("%Y-%m-%d")
-
-# > model parameters <
-N_LAYERS = 5
-#Type of model
-CELL = LSTM
-# Number of neurons
-UNITS = 256
-# Dropout rate
-DROPOUT = 0.3
-# whether to use bidirectional RNNs
-BIDIRECTIONAL = False
-
-# > training parameters <
-# LOSS = "mae"
-# huber loss
-LOSS = "huber_loss"
-OPTIMIZER = "adam"
-BATCH_SIZE = 64
-EPOCHS = 5
-ticker = "QQQ"
 
 #save model
 model_name = f"{date_now}_{ticker}-{LOSS}-{OPTIMIZER}-{CELL.__name__}-seq-{N_STEPS}-step-{LOOKUP_STEP}-layers-{N_LAYERS}-units-{UNITS}"
@@ -240,6 +245,7 @@ def plot_graph(model, data):
 
 plot_graph(model, data)
 
+### inverse transformation back to price from normalized values and then converted to boolean and calculated
 def accuracy(model, data):
     y_test = data["y_test"]
     X_test = data["X_test"]
@@ -254,6 +260,8 @@ def accuracy2(model, data):
     y_test = data["y_test"]
     X_test = data["X_test"]
     y_pred = model.predict(X_test)
+    y_test = np.squeeze(data["column_scaler"]["Close"].inverse_transform(np.expand_dims(y_test, axis=0)))
+    y_pred = np.squeeze(data["column_scaler"]["Close"].inverse_transform(y_pred))
     return r2_score(y_test, y_pred)
 
 print(str(LOOKUP_STEP) + ":", "Accuracy Score:", accuracy(model, data))
