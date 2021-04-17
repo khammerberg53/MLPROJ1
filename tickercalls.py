@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 
 ticker = "MSFT"
 data = yf.download("MSFT", start="2017-01-01", end="2017-12-30")
+print(f'{data}')
 
 plt.figure()
 plt.plot(data["Open"])
