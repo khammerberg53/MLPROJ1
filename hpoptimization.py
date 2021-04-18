@@ -1,37 +1,59 @@
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import time
-import os
-import random
-from collections import deque
-import kerastuner as kt
-
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional
-from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
+from kerastuner.tuners import RandomSearch
+import time
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import r2_score
-import yfinance as yf
+from sklearn import metrics
+from collections import deque
 
-#units = neurons
-def load_data(ticker, period, interval, n_steps=200, scale=True, shuffle=True, lookup_step=30, test_size=.2,
+def build_model(hp):
+    model = Sequential()
+    for i in range(hp.Int('n_layers', 1-5, 10)):
+        if i == 0:
+            # first layer
+            if bidirectional:
+                model.add(Bidirectional(cell(units, return_sequences=True), input_shape=(None, sequence_length)))
+            else:
+                model.add(cell(units, return_sequences=True, input_shape=(None, sequence_length)))
+        elif i == n_layers - 1:
+            # last layer
+            if bidirectional:
+                model.add(Bidirectional(cell(units, return_sequences=False)))
+            else:
+                model.add(cell(units, return_sequences=False))
+        else:
+            # hidden layers
+            if bidirectional:
+                model.add(Bidirectional(cell(units, return_sequences=True)))
+            else:
+                model.add(cell(units, return_sequences=True))
+        # add dropout after each layer
+        x = tf.keras.layers.Dropout(
+                hp.Float('dropout', 0, 0.5, step=0.1, default=0.5))(i)
+        outputs = tf.keras.layers.Dense(10, activation='softmax')(i)
+        model.add(Dense(x, activation="linear"))
+
+        model = tf.keras.Model(x, outputs)
+    model.compile(loss="huber_loss", metrics=["accuracy"], optimizer=tf.keras.optimizers.Adam((
+    hp.Float('learning_rate', 1e-4, 1e-2, sampling='log'))))
+    return model
+
+import kerastuner as kt
+
+tuner = RandomSearch(
+    build_model,
+    objective="accuracy",
+    max_trials= 5,
+    executions_per_trial=2)
+
+import yfinance as yf
+import numpy as np
+
+
+def load_data(ticker, period, interval, n_steps=100, scale=True, shuffle=True, lookup_step=10, test_size=.2,
               feature_columns=['Close', 'Volume', 'Open', 'High', 'Low']):
-    '''
-    :param ticker: Ticker you want to load, dtype: str
-    :param period: Time period you want data from, dtype: str(options in program)
-    :param interval: Interval for data, dtype:str
-    :param n_steps: Past sequence length used to predict, default = 50, dtype: int
-    :param scale: Whether to scale data b/w 0 and 1, default = True, dtype: Bool
-    :param shuffle: Whether to shuffle data, default = True, dtyper: Bool
-    :param lookup_step: Future lookup step to predict, default = 1(next day), dtype:int
-    :param test_size: ratio for test data, default is .2 (20% test data), dtype: float
-    :param feature_columns: list of features fed into the model, default is OHLCV, dtype: list
-    :return:
-    '''
     df = yf.download(tickers=ticker, period=period, interval=interval,
                      group_by='ticker',
                      # adjust all OHLC automatically
@@ -39,8 +61,6 @@ def load_data(ticker, period, interval, n_steps=200, scale=True, shuffle=True, l
 
     result = {}
     result['df'] = df.copy()
-    ### preview data frame before preprocessing
-    print(df)
 
     for col in feature_columns:
         assert col in df.columns, f"'{col}' does not exist in the dataframe."
@@ -85,8 +105,44 @@ def load_data(ticker, period, interval, n_steps=200, scale=True, shuffle=True, l
     X = X.reshape((X.shape[0], X.shape[2], X.shape[1]))
     # split the dataset
     result["X_train"], result["X_test"], result["y_train"], result["y_test"] = train_test_split(X, y,
-                                                                               test_size=test_size, shuffle=shuffle)
+                                                                                                test_size=test_size,
+                                                                                                shuffle=shuffle)
     # return the result
     return result
 
-print(f'{result}')
+N_STEPS = 50
+# valid periods: 1d,5d,1mo,3mo,6mo,1y,2y,5y,10y,ytd,max
+PERIOD = '1y'
+# valid intervals: 1m,2m,5m,15m,30m,60m,90m,1h,1d,5d,1wk,1mo,3mo
+INTERVAL = '1d'
+# Lookup step, 1 is the next day
+LOOKUP_STEP = 10
+# test ratio size, 0.2 is 20%
+TEST_SIZE = 0.3
+# features to use
+FEATURE_COLUMNS = ["Close", "Volume", "Open", "High", "Low"]
+# date now
+date_now = time.strftime("%Y-%m-%d")
+# ticker
+ticker = 'TSLA'
+# cell
+CELL = LSTM
+# loss
+loss = 'huber_loss'
+
+data = load_data(ticker, PERIOD, INTERVAL, N_STEPS, lookup_step=LOOKUP_STEP, test_size=TEST_SIZE,
+                feature_columns=FEATURE_COLUMNS, shuffle=False)
+
+
+train_ds, test_ds = data['X_test'], data['y_test']
+train_ds = train_ds.astype('float32')
+test_ds = train_ds.astype('float32')
+
+print(f'{train_ds}')
+
+tuner.search(train_ds,
+             test_ds)
+
+best_model = tuner.get_best_models(1)[0]
+
+best_hyperparameters = tuner.get_best_hyperparameters(1)[0]
