@@ -8,45 +8,86 @@ from sklearn.model_selection import train_test_split
 from sklearn import metrics
 from collections import deque
 
-def build_model(hp):
+N_STEPS = 50
+# valid periods: 1d,5d,1mo,3mo,6mo,1y,2y,5y,10y,ytd,max
+PERIOD = '1y'
+# valid intervals: 1m,2m,5m,15m,30m,60m,90m,1h,1d,5d,1wk,1mo,3mo
+INTERVAL = '1d'
+# Lookup step, 1 is the next day
+LOOKUP_STEP = 10
+# test ratio size, 0.2 is 20%
+TEST_SIZE = 0.3
+# features to use
+FEATURE_COLUMNS = ["Close", "Volume", "Open", "High", "Low"]
+# date now
+date_now = time.strftime("%Y-%m-%d")
+# ticker
+ticker = 'TSLA'
+# cell
+cell = LSTM
+# loss
+loss = 'huber_loss'
+# specify whether to use bidirectional neurons
+bidirectional = True
+
+def build_model1(hp1):
     model = Sequential()
-    for i in range(hp.Int('n_layers', 1-5, 10)):
+    for i in range(hp1.Int('units', min_value=1, max_value=10)):
         if i == 0:
             # first layer
             if bidirectional:
-                model.add(Bidirectional(cell(units, return_sequences=True), input_shape=(None, sequence_length)))
+                model.add(Bidirectional(cell(return_sequences=True, units=hp1.Int('units', min_value=32,
+                                                                                 max_value=512,
+                                                                                 step=32,
+                                                                                 ))))
             else:
-                model.add(cell(units, return_sequences=True, input_shape=(None, sequence_length)))
-        elif i == n_layers - 1:
+                model.add(cell(return_sequences=True, units=hp1.Int('units', min_value=32,
+                                                                   max_value=512,
+                                                                   step=32, )))
+        elif i == i - 1:
             # last layer
             if bidirectional:
-                model.add(Bidirectional(cell(units, return_sequences=False)))
+                model.add(Bidirectional(cell(return_sequences=True,
+                                             units=hp1.Int('units', min_value=32,
+                                                          max_value=512,
+                                                          step=32, ))))
             else:
-                model.add(cell(units, return_sequences=False))
+                model.add(cell(return_sequences=True, units=hp1.Int('units', min_value=32,
+                                                                   max_value=512,
+                                                                   step=32, )))
         else:
             # hidden layers
             if bidirectional:
-                model.add(Bidirectional(cell(units, return_sequences=True)))
+                model.add(Bidirectional(cell(return_sequences=True,
+                                             units=hp1.Int('units', min_value=32,
+                                                          max_value=512,
+                                                          step=32, ))))
             else:
-                model.add(cell(units, return_sequences=True))
+                model.add(cell(return_sequences=True,
+                               units=hp1.Int('units', min_value=32,
+                                            max_value=512,
+                                            step=32, )))
         # add dropout after each layer
-        x = tf.keras.layers.Dropout(
-                hp.Float('dropout', 0, 0.5, step=0.1, default=0.5))(i)
-        outputs = tf.keras.layers.Dense(10, activation='softmax')(i)
-        model.add(Dense(x, activation="linear"))
+        tf.keras.layers.Dropout(
+            hp1.Float('dropout', min_value=0, max_value=0.5, step=0.1, default=0.5))(i)
+        model.add(Dense(units=hp1.Int('units', min_value=3, max_value=10))),
+        model.add(Dense(1)),
 
-        model = tf.keras.Model(x, outputs)
     model.compile(loss="huber_loss", metrics=["accuracy"], optimizer=tf.keras.optimizers.Adam((
-    hp.Float('learning_rate', 1e-4, 1e-2, sampling='log'))))
+        hp1.Choice('learning_rate', values=[1e-2, 1e-3, 1e-4]))))
     return model
 
-import kerastuner as kt
 
 tuner = RandomSearch(
-    build_model,
+    build_model1,
     objective="accuracy",
-    max_trials= 5,
-    executions_per_trial=2)
+    seed=42,
+    max_trials=5,
+    executions_per_trial=2,
+    tune_new_entries=True,
+    directory= 'Users/kylehammerberg/Desktop/tunermain',
+    project_name= 'tuner1',
+    allow_new_entries=True)
 
 import yfinance as yf
 import numpy as np
@@ -110,39 +151,30 @@ def load_data(ticker, period, interval, n_steps=100, scale=True, shuffle=True, l
     # return the result
     return result
 
-N_STEPS = 50
-# valid periods: 1d,5d,1mo,3mo,6mo,1y,2y,5y,10y,ytd,max
-PERIOD = '1y'
-# valid intervals: 1m,2m,5m,15m,30m,60m,90m,1h,1d,5d,1wk,1mo,3mo
-INTERVAL = '1d'
-# Lookup step, 1 is the next day
-LOOKUP_STEP = 10
-# test ratio size, 0.2 is 20%
-TEST_SIZE = 0.3
-# features to use
-FEATURE_COLUMNS = ["Close", "Volume", "Open", "High", "Low"]
-# date now
-date_now = time.strftime("%Y-%m-%d")
-# ticker
-ticker = 'TSLA'
-# cell
-CELL = LSTM
-# loss
-loss = 'huber_loss'
 
 data = load_data(ticker, PERIOD, INTERVAL, N_STEPS, lookup_step=LOOKUP_STEP, test_size=TEST_SIZE,
-                feature_columns=FEATURE_COLUMNS, shuffle=False)
-
+                 feature_columns=FEATURE_COLUMNS, shuffle=False)
 
 train_ds, test_ds = data['X_test'], data['y_test']
 train_ds = train_ds.astype('float32')
 test_ds = train_ds.astype('float32')
 
-print(f'{train_ds}')
+print(f'test_ds: {test_ds}')
 
-tuner.search(train_ds,
-             test_ds)
+print(f'train_ds: {train_ds}')
 
-best_model = tuner.get_best_models(1)[0]
 
-best_hyperparameters = tuner.get_best_hyperparameters(1)[0]
+N_EPOCH_SEARCH = 100
+
+tuner.search(train_ds, test_ds, epochs=N_EPOCH_SEARCH, validation_split=0.1)
+
+tuner.search_space_summary()
+
+# Show a summary of the search
+tuner.results_summary()
+
+# Retrieve the best model.
+best_model = tuner.get_best_models(num_models=2)[0]
+
+# Evaluate the best model.
+loss, accuracy = best_model.evaluate(train_ds, test_ds)
