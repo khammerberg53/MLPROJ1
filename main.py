@@ -17,6 +17,8 @@ from sklearn.metrics import r2_score
 import yfinance as yf
 
 ### Stock price predictor
+### To visualize training process w/ TensorBoard run cmd in terminal window: tensorboard --logdir logs/fit
+
 
 # Reproducability
 np.random.seed(42)
