@@ -32,7 +32,7 @@ bidirectional = True
 
 def build_model1(hp1):
     model = Sequential()
-    for i in range(hp1.Int('units', min_value=1, max_value=10)):
+    for i in range(hp1.Int('n_layers', min_value=1, max_value=10)):
         if i == 0:
             # first layer
             if bidirectional:
@@ -73,20 +73,20 @@ def build_model1(hp1):
         model.add(Dense(units=hp1.Int('units', min_value=3, max_value=10))),
         model.add(Dense(1)),
 
-    model.compile(loss="huber_loss", metrics=["accuracy"], optimizer=tf.keras.optimizers.Adam((
+    model.compile(loss="huber_loss", metrics=["MSE"], optimizer=tf.keras.optimizers.Adam((
         hp1.Choice('learning_rate', values=[1e-2, 1e-3, 1e-4]))))
     return model
 
 
 tuner = RandomSearch(
     build_model1,
-    objective="accuracy",
+    objective="MSE",
     seed=42,
-    max_trials=5,
+    max_trials=50,
     executions_per_trial=2,
     tune_new_entries=True,
     directory= 'Users/kylehammerberg/Desktop/tunermain',
-    project_name= 'tuner1',
+    project_name= 'tuner3',
     allow_new_entries=True)
 
 import yfinance as yf
@@ -166,7 +166,7 @@ print(f'train_ds: {train_ds}')
 
 N_EPOCH_SEARCH = 100
 
-tuner.search(train_ds, test_ds, epochs=N_EPOCH_SEARCH, validation_split=0.1)
+tuner.search(train_ds, test_ds, epochs=N_EPOCH_SEARCH, validation_split=0.2)
 
 tuner.search_space_summary()
 
@@ -178,3 +178,12 @@ best_model = tuner.get_best_models(num_models=2)[0]
 
 # Evaluate the best model.
 loss, accuracy = best_model.evaluate(train_ds, test_ds)
+
+# Get the optimal hyperparameters
+best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
+
+print(f"""
+The hyperparameter search is complete. The optimal number of units in the first densely-connected
+layer is {best_hps.get('units')}, the optimal learning rate for the optimizer
+is {best_hps.get('learning_rate')}, and the optimal number of layers is {best_hps.get('n_layers')}.
+""")
